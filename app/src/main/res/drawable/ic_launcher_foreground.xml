@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- WALL-E silhouette – simple, iconic -->
+
+    <!-- Tracks -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M22,72 h20 v10 h-20 z" />
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M66,72 h20 v10 h-20 z" />
+
+    <!-- Track wheels suggestion -->
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M26,74 h4 v6 h-4 z M34,74 h4 v6 h-4 z" />
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M70,74 h4 v6 h-4 z M78,74 h4 v6 h-4 z" />
+
+    <!-- Main body -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M28,42 h52 v32 h-52 z" />
+
+    <!-- Body panel lines -->
+    <path
+        android:fillColor="#E0A800"
+        android:pathData="M32,48 h44 v3 h-44 z" />
+    <path
+        android:fillColor="#E0A800"
+        android:pathData="M32,58 h44 v3 h-44 z" />
+
+    <!-- Neck -->
+    <path
+        android:fillColor="#BDBDBD"
+        android:pathData="M50,34 h8 v10 h-8 z" />
+
+    <!-- Head (binoculars) -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M38,18 h32 v18 h-32 z" />
+
+    <!-- Eyes -->
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M42,22 h10 v10 h-10 z" />
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M56,22 h10 v10 h-10 z" />
+
+    <!-- Eye highlights -->
+    <path
+        android:fillColor="#4FC3F7"
+        android:pathData="M44,24 h6 v6 h-6 z" />
+    <path
+        android:fillColor="#4FC3F7"
+        android:pathData="M58,24 h6 v6 h-6 z" />
+
+    <!-- Arms -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M18,50 h12 v8 h-12 z" />
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M78,50 h12 v8 h-12 z" />
+</vector>
