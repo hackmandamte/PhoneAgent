@@ -76,9 +76,22 @@ class MainActivity : Activity() {
 
         val p = prefs()
         if (Build.VERSION.SDK_INT >= 33) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.CAMERA), 1)
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.POST_NOTIFICATIONS,
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.RECORD_AUDIO
+                ), 1
+            )
         } else if (Build.VERSION.SDK_INT >= 23) {
-            requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.CAMERA), 1)
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.RECORD_AUDIO
+                ), 1
+            )
         }
 
         val root = LinearLayout(this).apply {
@@ -158,6 +171,7 @@ class MainActivity : Activity() {
             background = pill(card, 14f)
             setPadding(dp(14), dp(4), dp(14), dp(4))
         }
+
         val screenSw = Switch(this).apply {
             text = "  Screen control"
             setTextColor(textPrimary)
@@ -170,6 +184,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+
         val bubbleSw = Switch(this).apply {
             text = "  Floating bubble"
             setTextColor(textPrimary)
@@ -188,8 +203,40 @@ class MainActivity : Activity() {
                 }
             }
         }
+
+        val listenSw = Switch(this).apply {
+            text = "  Listen for \"Hey Agent\""
+            setTextColor(textPrimary)
+            isChecked = p.getBoolean("listen", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("listen", on).apply()
+                if (on) {
+                    // Need bubble service running + mic permission
+                    if (!Settings.canDrawOverlays(this@MainActivity)) {
+                        Toast.makeText(this@MainActivity, "Turn on Floating bubble first", Toast.LENGTH_LONG).show()
+                        isChecked = false
+                        prefs().edit().putBoolean("listen", false).apply()
+                        return@setOnCheckedChangeListener
+                    }
+                    startForegroundService(
+                        Intent(this@MainActivity, OverlayService::class.java).setAction("START_LISTEN")
+                    )
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Listening on. You’ll see a notification while the mic is active.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    startService(
+                        Intent(this@MainActivity, OverlayService::class.java).setAction("STOP_LISTEN")
+                    )
+                }
+            }
+        }
+
         toggles.addView(screenSw)
         toggles.addView(bubbleSw)
+        toggles.addView(listenSw)
         root.addView(toggles.apply {
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.topMargin = dp(12)
