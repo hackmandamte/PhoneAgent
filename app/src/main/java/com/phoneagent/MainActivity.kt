@@ -76,9 +76,9 @@ class MainActivity : Activity() {
 
         val p = prefs()
         if (Build.VERSION.SDK_INT >= 33) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_MEDIA_VIDEO), 1)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.CAMERA), 1)
         } else if (Build.VERSION.SDK_INT >= 23) {
-            requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 1)
+            requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.CAMERA), 1)
         }
 
         val root = LinearLayout(this).apply {
@@ -87,7 +87,6 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(16), dp(16), dp(12))
         }
 
-        // Header
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -109,7 +108,6 @@ class MainActivity : Activity() {
         header.addView(settingsBtn)
         root.addView(header)
 
-        // Collapsible settings (API key lives here — not on the main screen)
         settingsPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -127,7 +125,6 @@ class MainActivity : Activity() {
             setHint("Paste key from aistudio.google.com")
             setHintTextColor(textMuted)
             setTextColor(textPrimary)
-            setBackgroundColor(0xFF0F1115.toInt())
             setPadding(dp(12), dp(12), dp(12), dp(12))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setText(p.getString("api_key", ""))
@@ -156,11 +153,9 @@ class MainActivity : Activity() {
         settingsPanel.addView(settingsCard)
         root.addView(settingsPanel)
 
-        // Toggles card
         val toggles = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = pill(card, 14f)
-            setPadding(dp(14), dp(8), dp(14), dp(8))
             setPadding(dp(14), dp(4), dp(14), dp(4))
         }
         val screenSw = Switch(this).apply {
@@ -201,7 +196,6 @@ class MainActivity : Activity() {
             layoutParams = lp
         })
 
-        // Clear history
         val clearBtn = Button(this).apply {
             text = "Clear history"
             setTextColor(textMuted)
@@ -217,7 +211,6 @@ class MainActivity : Activity() {
             layoutParams = lp
         })
 
-        // Log area
         log = TextView(this).apply {
             textSize = 13.5f
             setTextColor(textPrimary)
@@ -234,7 +227,6 @@ class MainActivity : Activity() {
             bottomMargin = dp(12)
         })
 
-        // Input row
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
