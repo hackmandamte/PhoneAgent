@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
@@ -29,7 +28,10 @@ import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
 
-/** Foreground service: bubble, panel, tap-to-talk, optional visible Hey Agent listening. */
+/**
+ * Floating presence near the camera area (Face ID style).
+ * Expressions change with agent state: watching, listening, working, speaking, done.
+ */
 class OverlayService : Service() {
     private lateinit var wm: WindowManager
     private val ui = Handler(Looper.getMainLooper())
@@ -42,30 +44,52 @@ class OverlayService : Service() {
 
     private var speech: SpeechRecognizer? = null
     private var listeningHandsFree = false
-    private var awaitingCommand = false // true after wake phrase heard
+    private var awaitingCommand = false
 
-    private val wallEYellow = 0xE6FFC107.toInt()
-    private val runningRed = 0xE6DC2626.toInt()
-    private val listenGreen = 0xE622C55E.toInt()
+    /** Face expressions shown on the bubble */
+    private enum class Face {
+        WATCHING,   // idle — looking at you
+        LISTENING,  // mic / Hey Agent active
+        WORKING,    // task running
+        SPEAKING,   // reporting / final answer
+        DONE        // brief success flash
+    }
+
+    private var face = Face.WATCHING
 
     private val logL: (String) -> Unit = { s ->
         ui.post {
             tail = (tail + s + "\n\n").takeLast(1200)
             panelLog?.text = tail
-            if (s.startsWith("🤖") && panel == null) {
-                Toast.makeText(this, s.take(250), Toast.LENGTH_LONG).show()
+            // React with face expressions to agent output
+            when {
+                s.startsWith("🤖") -> {
+                    setFace(Face.SPEAKING)
+                    if (panel == null) Toast.makeText(this, s.take(250), Toast.LENGTH_LONG).show()
+                    ui.postDelayed({ setFace(if (AgentEngine.running) Face.WORKING else Face.DONE) }, 2200)
+                    ui.postDelayed({ if (!AgentEngine.running) setFace(defaultFace()) }, 3500)
+                }
+                s.startsWith("💭") || s.startsWith("→") -> setFace(Face.WORKING)
+                s.startsWith("You:") -> setFace(Face.LISTENING)
             }
         }
     }
     private val stateL: (Boolean) -> Unit = { running ->
         ui.post {
-            updateBubbleAppearance(running)
+            setFace(when {
+                running -> Face.WORKING
+                listeningHandsFree || awaitingCommand -> Face.LISTENING
+                else -> Face.WATCHING
+            })
             sendBtn?.text = if (running) "Stop" else "Send"
         }
     }
 
     private fun prefs() = getSharedPreferences("agent", MODE_PRIVATE)
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun defaultFace(): Face =
+        if (listeningHandsFree || prefs().getBoolean("listen", false)) Face.LISTENING else Face.WATCHING
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,6 +117,7 @@ class OverlayService : Service() {
                 prefs().edit().putBoolean("listen", false).apply()
                 stopListening()
                 updateNotification(false)
+                setFace(Face.WATCHING)
             }
         }
 
@@ -118,21 +143,22 @@ class OverlayService : Service() {
         )
         val title = if (listening) "Listening for Hey Agent" else "Phone Agent running"
         val text = if (listening)
-            "Mic is on. Say \"Hey Agent\" then your task. Tap notification area or turn off in app to stop."
+            "Mic is on. Say \"Hey Agent\" then your task."
         else
-            "Floating bubble active"
-        val n = Notification.Builder(this, "agent_fg")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setOngoing(true)
-            .build()
-        startForeground(1, n)
+            "Face presence active"
+        startForeground(
+            1,
+            Notification.Builder(this, "agent_fg")
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setOngoing(true)
+                .build()
+        )
     }
 
-    private fun hasMicPermission(): Boolean {
-        return checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-    }
+    private fun hasMicPermission(): Boolean =
+        checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun startHandsFreeIfNeeded() {
         if (!prefs().getBoolean("listen", false)) return
@@ -141,13 +167,13 @@ class OverlayService : Service() {
             return
         }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            ui.post { Toast.makeText(this, "Speech recognition not available on this device", Toast.LENGTH_LONG).show() }
+            ui.post { Toast.makeText(this, "Speech recognition not available", Toast.LENGTH_LONG).show() }
             return
         }
         listeningHandsFree = true
         awaitingCommand = false
         updateNotification(true)
-        updateBubbleAppearance(AgentEngine.running)
+        setFace(Face.LISTENING)
         startSpeechCycle()
     }
 
@@ -164,23 +190,25 @@ class OverlayService : Service() {
             if (!SpeechRecognizer.isRecognitionAvailable(this)) return null
             speech = SpeechRecognizer.createSpeechRecognizer(this).apply {
                 setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle?) {}
-                    override fun onBeginningOfSpeech() {}
+                    override fun onReadyForSpeech(params: Bundle?) {
+                        ui.post { setFace(Face.LISTENING) }
+                    }
+                    override fun onBeginningOfSpeech() {
+                        ui.post { setFace(Face.LISTENING) }
+                    }
                     override fun onRmsChanged(rmsdB: Float) {}
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
                     override fun onError(error: Int) {
-                        // Restart hands-free cycle after a short delay
                         if (listeningHandsFree) {
                             ui.postDelayed({ startSpeechCycle() }, 800)
                         } else {
-                            ui.post { micBtn?.text = "Mic" }
+                            ui.post { micBtn?.text = "Mic"; setFace(defaultFace()) }
                         }
                     }
                     override fun onResults(results: Bundle?) {
                         val texts = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val heard = texts?.firstOrNull()?.trim().orEmpty()
-                        handleHeard(heard)
+                        handleHeard(texts?.firstOrNull()?.trim().orEmpty())
                     }
                     override fun onPartialResults(partialResults: Bundle?) {}
                     override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -197,11 +225,10 @@ class OverlayService : Service() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
         }
         try {
             sr.startListening(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             if (listeningHandsFree) ui.postDelayed({ startSpeechCycle() }, 1500)
         }
     }
@@ -218,7 +245,6 @@ class OverlayService : Service() {
 
         if (listeningHandsFree && !awaitingCommand) {
             if (isWake) {
-                // Strip wake phrase if the command came in the same utterance
                 var cmd = raw
                 listOf("hey agent", "hi agent", "okay agent", "ok agent", "agent").forEach { w ->
                     val idx = cmd.lowercase(Locale.getDefault()).indexOf(w)
@@ -226,6 +252,7 @@ class OverlayService : Service() {
                 }
                 if (cmd.isNotBlank() && cmd.length > 2) {
                     ui.post {
+                        setFace(Face.WORKING)
                         Toast.makeText(this, "Got it: $cmd", Toast.LENGTH_SHORT).show()
                         AgentEngine.run(cmd)
                     }
@@ -233,21 +260,20 @@ class OverlayService : Service() {
                 } else {
                     awaitingCommand = true
                     ui.post {
+                        setFace(Face.LISTENING)
                         Toast.makeText(this, "Yes? Tell me what to do.", Toast.LENGTH_SHORT).show()
-                        updateBubbleAppearance(AgentEngine.running)
                     }
                 }
             }
-            // Keep listening for wake or next command
             ui.postDelayed({ startSpeechCycle() }, 500)
             return
         }
 
         if (awaitingCommand || !listeningHandsFree) {
-            // This is the actual command (tap-to-talk or post-wake)
             awaitingCommand = false
             ui.post {
                 micBtn?.text = "Mic"
+                setFace(Face.WORKING)
                 Toast.makeText(this, "Heard: $raw", Toast.LENGTH_SHORT).show()
                 if (!AgentEngine.running) AgentEngine.run(raw)
             }
@@ -255,7 +281,6 @@ class OverlayService : Service() {
         }
     }
 
-    /** One-shot listen for a command (tap-to-talk). */
     fun startTapToTalk() {
         if (!hasMicPermission()) {
             Toast.makeText(this, "Allow microphone permission first", Toast.LENGTH_LONG).show()
@@ -266,56 +291,58 @@ class OverlayService : Service() {
             return
         }
         awaitingCommand = true
-        listeningHandsFree = prefs().getBoolean("listen", false) // keep flag
+        setFace(Face.LISTENING)
         ui.post { micBtn?.text = "…" }
         Toast.makeText(this, "Listening…", Toast.LENGTH_SHORT).show()
-        // Temporarily ensure a cycle runs even if hands-free was off
-        val was = listeningHandsFree
-        if (!was) listeningHandsFree = true
+        if (!listeningHandsFree) listeningHandsFree = true
         startSpeechCycle()
-        // If user only wanted tap-to-talk, we'll leave hands-free as prefs say after result
     }
 
-    private fun updateBubbleAppearance(running: Boolean) {
-        bubble?.let {
-            when {
-                running -> {
-                    it.text = "■"
-                    (it.background as GradientDrawable).setColor(runningRed)
-                    it.setTextColor(Color.WHITE)
-                }
-                prefs().getBoolean("listen", false) -> {
-                    it.text = "W"
-                    (it.background as GradientDrawable).setColor(listenGreen)
-                    it.setTextColor(Color.WHITE)
-                }
-                else -> {
-                    it.text = "W"
-                    (it.background as GradientDrawable).setColor(wallEYellow)
-                    it.setTextColor(0xFF1A1A1A.toInt())
-                }
-            }
+    /** Apply Face ID-style expression to the bubble */
+    private fun setFace(f: Face) {
+        face = f
+        val b = bubble ?: return
+        val (emoji, bgColor, textColor) = when (f) {
+            Face.WATCHING -> Triple("👀", 0xF01A1A1A.toInt(), 0xFFE8EAED.toInt())  // looking at you
+            Face.LISTENING -> Triple("👂", 0xF00D9488.toInt(), Color.WHITE)         // hearing you
+            Face.WORKING -> Triple("🤔", 0xF0B45309.toInt(), Color.WHITE)          // thinking / acting
+            Face.SPEAKING -> Triple("💬", 0xF01D4ED8.toInt(), Color.WHITE)         // reporting answer
+            Face.DONE -> Triple("✅", 0xF016A34A.toInt(), Color.WHITE)             // task finished
         }
+        b.text = emoji
+        (b.background as GradientDrawable).setColor(bgColor)
+        b.setTextColor(textColor)
     }
 
     private fun showBubble() {
         if (bubble != null) return
+
+        // Pill / island shape — sits near camera like Face ID
         val b = TextView(this).apply {
             gravity = Gravity.CENTER
-            textSize = 18f
-            setTypeface(null, Typeface.BOLD)
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL }
+            textSize = 22f
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(22).toFloat()
+                setColor(0xF01A1A1A.toInt())
+            }
+            // Subtle border glow
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        updateBubbleAppearance(AgentEngine.running)
+        setFace(defaultFace())
+
         val lp = WindowManager.LayoutParams(
-            dp(56), dp(56),
+            dp(56), dp(40),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = dp(20); y = dp(200)
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            // High on screen — near front camera / status bar
+            x = 0
+            y = dp(36)
         }
+
         var sx = 0; var sy = 0; var dx = 0; var dy = 0; var moved = false
         b.setOnTouchListener { v, e ->
             when (e.action) {
@@ -327,7 +354,7 @@ class OverlayService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     val mx = e.rawX.toInt() - dx
                     val my = e.rawY.toInt() - dy
-                    if (Math.abs(mx) > 8 || Math.abs(my) > 8) moved = true
+                    if (kotlin.math.abs(mx) > 8 || kotlin.math.abs(my) > 8) moved = true
                     lp.x = sx + mx; lp.y = sy + my
                     wm.updateViewLayout(v, lp)
                 }
@@ -342,6 +369,8 @@ class OverlayService : Service() {
     private fun onBubbleTap() {
         if (AgentEngine.running) {
             AgentEngine.stop()
+            setFace(Face.DONE)
+            ui.postDelayed({ setFace(defaultFace()) }, 1200)
         } else if (panel == null) {
             showPanel()
         } else {
@@ -363,16 +392,15 @@ class OverlayService : Service() {
 
         box.addView(TextView(this).apply {
             text = "Phone Agent"
-            setTextColor(0xFFFFC107.toInt())
+            setTextColor(0xFF22D3EE.toInt())
             textSize = 16f
-            setTypeface(null, Typeface.BOLD)
             setPadding(0, 0, 0, dp(8))
         })
 
         val lg = TextView(this).apply {
             setTextColor(0xFFE8EAED.toInt())
             textSize = 12.5f
-            text = tail.ifEmpty { "Type or tap Mic to speak." }
+            text = tail.ifEmpty { "I'm watching. Type or tap Mic." }
         }
         val scroll = ScrollView(this).apply {
             addView(lg)
@@ -417,6 +445,7 @@ class OverlayService : Service() {
                     val t = et.text.toString().trim()
                     if (t.isNotEmpty()) {
                         et.setText("")
+                        setFace(Face.WORKING)
                         AgentEngine.run(t)
                     }
                 }
@@ -428,7 +457,7 @@ class OverlayService : Service() {
             text = "Mic"
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
-                setColor(0xFF22C55E.toInt())
+                setColor(0xFF0D9488.toInt())
                 cornerRadius = dp(10).toFloat()
             }
             setOnClickListener { startTapToTalk() }
@@ -470,8 +499,8 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = dp(16); y = dp(100)
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            x = 0; y = dp(90)
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
         wm.addView(box, lp)
