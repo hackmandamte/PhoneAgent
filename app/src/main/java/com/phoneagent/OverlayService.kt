@@ -20,21 +20,28 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 
-/** Foreground service: keeps the agent alive in the background and draws the floating bubble. */
+/** Foreground service: keeps the agent alive and draws the WALL-E floating bubble. */
 class OverlayService : Service() {
     private lateinit var wm: WindowManager
     private val ui = Handler(Looper.getMainLooper())
     private var bubble: TextView? = null
     private var panel: LinearLayout? = null
     private var panelLog: TextView? = null
+    private var sendBtn: Button? = null
     private var tail = ""
+
+    // WALL-E colors
+    private val wallEYellow = 0xE6FFC107.toInt()
+    private val wallEDark = 0xE61A1A1A.toInt()
+    private val runningRed = 0xE6DC2626.toInt()
 
     private val logL: (String) -> Unit = { s ->
         ui.post {
-            tail = (tail + s + "\n\n").takeLast(700)
+            tail = (tail + s + "\n\n").takeLast(1200)
             panelLog?.text = tail
             if (s.startsWith("🤖") && panel == null) {
                 Toast.makeText(this, s.take(250), Toast.LENGTH_LONG).show()
@@ -44,10 +51,11 @@ class OverlayService : Service() {
     private val stateL: (Boolean) -> Unit = { running ->
         ui.post {
             bubble?.let {
-                it.text = if (running) "■" else "AI"
-                (it.background as GradientDrawable).setColor(
-                    if (running) 0xE6FF3B30.toInt() else 0xE60A84FF.toInt())
+                it.text = if (running) "■" else "W"
+                (it.background as GradientDrawable).setColor(if (running) runningRed else wallEYellow)
+                it.setTextColor(if (running) Color.WHITE else 0xFF1A1A1A.toInt())
             }
+            sendBtn?.text = if (running) "Stop" else "Send"
         }
     }
 
@@ -88,15 +96,16 @@ class OverlayService : Service() {
 
     private fun showBubble() {
         if (bubble != null) return
+        val running = AgentEngine.running
         val b = TextView(this).apply {
-            text = if (AgentEngine.running) "■" else "AI"
+            text = if (running) "■" else "W"
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            textSize = 15f
+            setTextColor(if (running) Color.WHITE else 0xFF1A1A1A.toInt())
+            textSize = 18f
             setTypeface(null, Typeface.BOLD)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(if (AgentEngine.running) 0xE6FF3B30.toInt() else 0xE60A84FF.toInt())
+                setColor(if (running) runningRed else wallEYellow)
             }
         }
         val lp = WindowManager.LayoutParams(
@@ -132,44 +141,134 @@ class OverlayService : Service() {
     }
 
     private fun onBubbleTap() {
-        if (AgentEngine.running) AgentEngine.stop()
-        else if (panel == null) showPanel()
-        else hidePanel()
+        if (AgentEngine.running) {
+            AgentEngine.stop()
+        } else if (panel == null) {
+            showPanel()
+        } else {
+            hidePanel()
+        }
     }
 
     private fun showPanel() {
         if (panel != null) return
+
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = GradientDrawable().apply { setColor(0xF2202124.toInt()); cornerRadius = dp(16).toFloat() }
-        }
-        val lg = TextView(this).apply { setTextColor(Color.WHITE); textSize = 12f; maxLines = 8; text = tail }
-        val et = EditText(this).apply {
-            hint = "Tell the agent what to do"
-            setTextColor(Color.WHITE)
-            setHintTextColor(0x99FFFFFF.toInt())
-        }
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val send = Button(this).apply {
-            text = "Send"
-            setOnClickListener {
-                val t = et.text.toString().trim()
-                if (t.isNotEmpty()) { hidePanel(); AgentEngine.run(t) }
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = GradientDrawable().apply {
+                setColor(0xF214161C.toInt())
+                cornerRadius = dp(18).toFloat()
             }
         }
-        val close = Button(this).apply { text = "Close"; setOnClickListener { hidePanel() } }
-        row.addView(send); row.addView(close)
-        box.addView(lg); box.addView(et); box.addView(row)
+
+        // Header
+        val header = TextView(this).apply {
+            text = "Phone Agent"
+            setTextColor(0xFFFFC107.toInt())
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, dp(8))
+        }
+        box.addView(header)
+
+        // Log (scrollable)
+        val lg = TextView(this).apply {
+            setTextColor(0xFFE8EAED.toInt())
+            textSize = 12.5f
+            text = tail.ifEmpty { "Tap Send to give me a task." }
+        }
+        val scroll = ScrollView(this).apply {
+            addView(lg)
+            background = GradientDrawable().apply {
+                setColor(0xFF0F1115.toInt())
+                cornerRadius = dp(10).toFloat()
+            }
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        box.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(140)
+        ).apply { bottomMargin = dp(10) })
+
+        // Input
+        val et = EditText(this).apply {
+            hint = "What should I do?"
+            setTextColor(Color.WHITE)
+            setHintTextColor(0x99FFFFFF.toInt())
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = GradientDrawable().apply {
+                setColor(0xFF0F1115.toInt())
+                cornerRadius = dp(10).toFloat()
+            }
+            maxLines = 3
+        }
+        box.addView(et, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(10) })
+
+        // Buttons row
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+
+        val send = Button(this).apply {
+            text = if (AgentEngine.running) "Stop" else "Send"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(if (AgentEngine.running) 0xFFDC2626.toInt() else 0xFF3B82F6.toInt())
+                cornerRadius = dp(10).toFloat()
+            }
+            setOnClickListener {
+                if (AgentEngine.running) {
+                    AgentEngine.stop()
+                } else {
+                    val t = et.text.toString().trim()
+                    if (t.isNotEmpty()) {
+                        et.setText("")
+                        AgentEngine.run(t)
+                    }
+                }
+            }
+        }
+        sendBtn = send
+
+        val openApp = Button(this).apply {
+            text = "App"
+            setTextColor(0xFFE8EAED.toInt())
+            background = GradientDrawable().apply {
+                setColor(0xFF2A2D35.toInt())
+                cornerRadius = dp(10).toFloat()
+            }
+            setOnClickListener {
+                hidePanel()
+                val i = Intent(this@OverlayService, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(i)
+            }
+        }
+
+        val close = Button(this).apply {
+            text = "Close"
+            setTextColor(0xFFE8EAED.toInt())
+            background = GradientDrawable().apply {
+                setColor(0xFF2A2D35.toInt())
+                cornerRadius = dp(10).toFloat()
+            }
+            setOnClickListener { hidePanel() }
+        }
+
+        row.addView(send, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
+        row.addView(openApp, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
+        row.addView(close, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        box.addView(row)
 
         val lp = WindowManager.LayoutParams(
-            dp(300), WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(320), WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(16); y = dp(120)
+            x = dp(16); y = dp(100)
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
         wm.addView(box, lp)
@@ -181,6 +280,7 @@ class OverlayService : Service() {
         panel?.let { try { wm.removeView(it) } catch (e: Exception) { } }
         panel = null
         panelLog = null
+        sendBtn = null
     }
 
     private fun removeViews() {
