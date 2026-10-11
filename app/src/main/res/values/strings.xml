@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Phone Agent</string>
+    <string name="a11y_desc">Lets Phone Agent read the screen and perform taps, typing and scrolling when you turn on Screen control inside the app.</string>
+</resources>
